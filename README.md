@@ -55,9 +55,11 @@ bashCoin starts the blockchain with the files “1.blk.solved” and “2.blk”
 
 While Bitcoin rewards miners with coins, bashCoin currently does not.  Because of this, it is a good idea to include a large transaction in the genesis block before mining so that at least one participant has wealth.  bashCoin uses a specific schema for transactional data.  The following two lines can be included in the genesis file for ease of use.
 
+<pre>
 tx1:user1:user1:1000000
 
 tx2:user1:user1:1000000
+</pre>
 When the genesis block is mined, user1 will “own” 1 million bashCoins.  user1 can then send up to 1 Mil coins to any other address.
 
 ## Sending Bash Coins
