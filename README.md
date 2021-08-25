@@ -232,5 +232,9 @@ printf "$HASH\n\n" >> $NEXTBLOCK
 </pre>
 The mine() function automatically creates the next block and includes the hash for the freshly mined block at the top of the file.
 
-Summary
+## Summary
 The simple concepts within Bitcoin solve several complex problems.  Namely, safeguarding wealth with strong encryption and recording an immutable, anonymous, and public ledger can be easily replicated with a bash script.  See below for the current version on bashCoin.  Copy and paste into a Linux terminal to use.
+
+
+## Thanks
+Thanks for https://armedia.com/ team for referances. 
