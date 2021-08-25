@@ -24,7 +24,7 @@ Blocks in the blockchain are assembled with the hash of the previous block.  Sta
 bashCoin has a function called mineGenesis() that mines a file without checking the hash of another file.  This function is called at the terminal with the command:
 <pre>
 ./bashCoin.sh minegen <file>
-<pre>
+</pre>
 
 The function first checks to see if a genesis block exists so that it can abort before overwriting it:
 <pre>
