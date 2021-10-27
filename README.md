@@ -16,7 +16,8 @@ Transactions are grouped into blocks before being added to the blockchain. The f
 
 Mining a block and being financially rewarded is one of the things that give value to the currency. Forcing users to work for the monetary reward makes it so that others that are not mining appreciate their effort and value the currency in circulation.  The reward is automatically given to the miner and it is created as if it were mined out of the Earth.  It was not owned by anyone before the miner and is a finite resource. The financial reward given to miners decreases over time and will eventually reach zero.
 
-To better keep track of the ledger as well as ensuring security, a cryptocurrency such as Bitcoin can use change transactions.  When a user sends another user coins, he or she will send themselves their remaining balance to a brand new address.  The new address is encrypted and unrelated to the address before it.  For example, if Alice has a total of 300 coins and she wants to send Bob 100, she would send Bob 100 coins and send 200 coins to a brand new public/private key pair address.  She would generate this new address when she sends the coins to Bob.  Alice would be the only owner of the new private key.
+To better keep track of the ledger as well as ensuring security, a cryptocurrency such as Bitcoin can use change transactions.  When a user 
+s another user coins, he or she will send themselves their remaining balance to a brand new address.  The new address is encrypted and unrelated to the address before it.  For example, if Alice has a total of 300 coins and she wants to send Bob 100, she would send Bob 100 coins and send 200 coins to a brand new public/private key pair address.  She would generate this new address when she sends the coins to Bob.  Alice would be the only owner of the new private key.
 
 ## Genesis
 Blocks in the blockchain are assembled with the hash of the previous block.  Starting a blockchain requires a block that does not rely on a previous block.  This block is called the genesis block. The genesis block is special in that its hash is not calculated using the hash of another block.
@@ -63,7 +64,7 @@ tx2:user1:user1:1000000
 When the genesis block is mined, user1 will “own” 1 million bashCoins.  user1 can then send up to 1 Mil coins to any other address.
 
 ## Sending Bash Coins
-After the first two transactions are included in the genesis block and it is mined, user1 can send coins to another address.  Addresses in bashCoin can be thought of as accounts that don’t need to be set up prior to receiving coins. In Bitcoin, addresses are essentially public/private key pairs.  They must be calculated before they are used. After an address in Bitcoin receives payment the private key is the only thing that allows a user to spend the balance. In bashCoin, however, any user can send transactions from any account.  There is currently no security on bashCoin addresses.
+After the first two transactions are included in the genesis block and it is mined, user1 can send coins to another address.  Addresses in bashCoin can be thought of as accounts that don’t need to be set up prior to receiving coins. In Bitcoin, addresses are essentially public/private key pairs.  They must be calculated before they are used. After an address in Bitcoin receives payment the private key is the only thing that allows a user to spend the balance.  There is currently partial security on bashCoin addresses.
 
 The following command allows a user to send coins in bashCoin.
 <pre>
