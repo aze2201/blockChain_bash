@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version=1.2.0.0
+version=1.2.1.0
 
 
 ## Set difficulty #####################################
@@ -19,11 +19,16 @@ version=1.2.0.0
         DIFFPLUS=1
         DIFFZEROS=0
 
-## Variables
+## key Variables
 privateKeyFile=./cert/key.pem
 publicKeyFile=./cert/key.pub
 
+# mine top
+topHighFeeTransactions=100
+
 ## Functions ##########################################
+
+[ ! -f blk.pending ] && touch blk.pending
 
 ppassword() {
         unset Password
@@ -86,41 +91,71 @@ setup () {
 	printf "No use, but $DIFFPLUS and $DIFFZEROS\n"
 }
 
+
+chooseHihFeeTransactions() {
+        transactionsFile=$1
+        tempFolder="/tmp/bashCo/$RANDOM"
+        mkdir $tempFolder
+        cat $transactionsFile | grep "TX*"| head -$topHighFeeTransactions| sort -nr -t ':' -k5 | while read highFeeTransactions; do
+                ## take relatedtransaction for own balance change
+                sender=$(echo ${highFeeTransactions}| awk -v FS=':' '{print $2}')
+                reciever=$(echo ${highFeeTransactions}| awk -v FS=':' '{print $3}')
+                transactionsTime=$(echo ${highFeeTransactions}| awk -v FS=':' '{print $6}')
+                echo $highFeeTransactions
+                # this is balance change, no need to take fee from that. fee already in send-reciever transacrtion.
+                cat $transactionsFile| grep "TX"| awk -v transactionsTime=$transactionsTime -v sender=$sender -v reciever=$reciever -v FS=':' '{if ($2==sender && $3==reciever && $6==transactionsTime) print}'
+        done | sort  -t ":" -k1,1 -u
+
+
+}
+
 validateTransactions() {
         tempFolder="/tmp/bashCo/$RANDOM"
-        echo $tempFolder
         mkdir $tempFolder
-        res=$(cat $CURRENTBLOCK | grep "tx[0-9]*:")
-        if [ $? -eq 0 ]; then echo "looks some transactions in file"; fi
-        cat $CURRENTBLOCK | grep "tx[0-9]*:"| while read transactions; do
-                echo ${transactions}| awk -v FS=':' '{print $1":"$2":"$3":"$4":"$5}' > $tempFolder/transactions.msg
-                echo ${transactions}| awk -v FS=':' '{print $6}'| base64 -d > $tempFolder/transactions.pub
-                echo ${transactions}| awk -v FS=':' '{print $7}'| base64 -d > $tempFolder/transactions.sig
+        res=$(cat blk.pending | grep "TX*")
+        cat blk.pending | grep "TX*"| while read transactions; do
+                if [ ${#transactions} -eq 0 ]; then break; fi
+                echo ${transactions}| awk -v FS=':' '{print $1":"$2":"$3":"$4":"$5":"$6}' > $tempFolder/transactions.msg
+                echo ${transactions}| awk -v FS=':' '{print $7}'| base64 -d > $tempFolder/transactions.pub
+                echo ${transactions}| awk -v FS=':' '{print $8}'| base64 -d > $tempFolder/transactions.sig
                 openssl dgst -verify $tempFolder/transactions.pub -keyform PEM -sha256 -signature $tempFolder/transactions.sig -binary $tempFolder/transactions.msg > /dev/null
                 if [ $? -eq 0 ]; then
                         echo $transactions >> $tempFolder/currentValidTransactions.tmp
                 fi
         done
-        if [[ -f $tempFolder/currentValidTransactions.tmp ]] ; then
-                HashExist=$(cat ${CURRENTBLOCK}| grep "Previous Block Hash") && 
-                head -2 $CURRENTBLOCK > $tempFolder/CURRENTBLOCK &&
-                cat tempFolder/CURRENTBLOCK > $CURRENTBLOCK &&
-                cat $tempFolder/currentValidTransactions.tmp >>  $CURRENTBLOCK ||
-                echo "looks not previus block info in ${CURRENTBLOCK}"
+        # if file exist with non zero size, add them to next blk file to mine
+        if [[ -s $tempFolder/currentValidTransactions.tmp ]] ; then
+                chooseHihFeeTransactions $tempFolder/currentValidTransactions.tmp
         fi
 
 }
 
 buildWIPBlock () {
-        validateTransactions
-        DATE=$(date)
-        printf "`cat $CURRENTBLOCK`\n\n" > $CURRENTBLOCK.wip
-        printf "$HEADLINE\n\n" >> $CURRENTBLOCK.wip
-        printf "## Mine Date and Time: ####################################################################\n" >> $CURRENTBLOCK.wip
-        printf "$DATE\n\n" >> $CURRENTBLOCK.wip
+        DATE=$(date -u)
+        printf "`cat $CURRENTBLOCK`\n" > $CURRENTBLOCK.wip
+        printf "HEADERS: $HEADLINE\n" >> $CURRENTBLOCK.wip
+        printf "DateTime: $DATE\n"    >> $CURRENTBLOCK.wip
+        printf "Version: $version\n"  >> $CURRENTBLOCK.wip
+        printf "Difficulty: $DIFF\n"  >> $CURRENTBLOCK.wip
+        echo 
+        echo
+        ## this is valid transactions
+        validateTransactions >> $CURRENTBLOCK.wip
+        ppassword
+        ## build transaction for reward (need to add sign also)
+        SENDER=$(cat ${publicKeyFile}| sha256sum | cut -d" " -f1)
+        dateTime=$(date "+%Y%m%d%H%M%S")
+        HASH_TRANSACTION=$(echo REWARD:${SENDER}:2:0:${dateTime}| sha256sum| cut -d" " -f1)
+        SIGN=$(echo TX$HASH_TRANSACTION:REWARD:${SENDER}:2:0:${dateTime} | openssl dgst -sign cert/key.pem -keyform PEM -sha256 -passin pass:$Password| base64 | tr '\n' ' ' | sed 's/ //g')
+        SENDER_PUBKEY=$(cat ${publicKeyFile}| base64 |tr '\n' ' '| sed 's/ //g'  )
+        echo TX$HASH_TRANSACTION:REWARD:${SENDER}:2:0:${dateTime}:$SENDER_PUBKEY:$SIGN >> $CURRENTBLOCK.wip
+        ## add block sign to block
+        echo >> $CURRENTBLOCK.wip
+        echo >> $CURRENTBLOCK.wip
+        echo "## SIGNATURE: #################################################################################" >> $CURRENTBLOCK.wip
+        echo "PublicKey: $SENDER_PUBKEY" >> $CURRENTBLOCK.wip
+        echo "SIGNATURE: $(cat $CURRENTBLOCK.wip| openssl dgst -sign ${privateKeyFile} -keyform PEM -sha256 -passin pass:$Password| base64 | tr '\n' ' ' | sed 's/ //g')" >> $CURRENTBLOCK.wip
         echo "buildWIPBlock ....."
-        echo "CURRENTBLOCK is $CURRENTBLOCK"
-        echo "CURRENTBLOCK.wip is $CURRENTBLOCK.wip"
 }
 
 
@@ -140,11 +175,21 @@ mine () {
                         ZEROS=$(echo $HASH | cut -c1-$DIFF)
         done
 
+        printf "`cat $CURRENTBLOCK.wip`\n\n## Nonce: #################################################################################\n$NONCE\n" > $CURRENTBLOCK.solved
+
+        if [ $? -eq 0 ]; then
+                ## if mined successfully then remomove transaction from pending which are already in block
+                [[ -s blk.pending ]] && cat $CURRENTBLOCK.solved | grep TX| while read lines; do
+                        txID=$(echo ${lines}| awk -v FS=':' '{print $1}')
+                        sed -i "/$txID/d" blk.pending 
+                done
+        fi
         echo "Success!"
         echo "Nonce:            " $NONCE
         echo "Hash:              " $HASH
 
-        printf "`cat $CURRENTBLOCK.wip`\n\n## Nonce: #################################################################################\n$NONCE\n" > $CURRENTBLOCK.solved
+        
+
         #printf "$HASH\n" > $CURRENTBLOCK.hash
         rm -f $CURRENTBLOCK.wip
         rm -f $CURRENTBLOCK
@@ -193,7 +238,7 @@ checkAccountBal () {
         ACCTNUM=$1
 
         # Get the value of the last change transaction (the last time a user sent money back to themselves) if it exists
-        for i in `ls *.blk* -1| sort -nr`; do
+        for i in `ls *blk* -1| sort -nr`; do
                         LASTCHANGEBLK=`grep -l -m 1 .*:$ACCTNUM:$ACCTNUM:.* $i`
                         [[ $LASTCHANGEBLK ]] && break
         done
@@ -202,7 +247,7 @@ checkAccountBal () {
         [[ $LASTCHANGEBLK ]] && LASTCHANGE=`grep $ACCTNUM:$ACCTNUM $LASTCHANGEBLK | tail -1` || echo "Account has never spent BashCoin."
 
         # If account has never spent money then set LASTCHANGE to zero, if it has, separate out the tx number and value of that transaction
-        [[ $LASTCHANGE ]] && LASTCHANGETX=`echo $LASTCHANGE | cut -d":" -f 1 | sed 's/tx//'` && LASTCHANGE=`echo $LASTCHANGE | cut -d":" -f 4` || LASTCHANGE=0
+        [[ $LASTCHANGE ]] && LASTCHANGETX=`echo $LASTCHANGE | cut -d":" -f 1 | sed 's/TX//'` && LASTCHANGE=`echo $LASTCHANGE | cut -d":" -f 4` || LASTCHANGE=0
 
         # Print the value of the last change transaction (the value of the users account before any other received transactions)
         #echo Last Change = $LASTCHANGE
@@ -211,7 +256,7 @@ checkAccountBal () {
         # Get all of the receiving transactions after last change in the last change block and add them together
         if [[ $LASTCHANGEBLK ]]
                         then
-                                        RECAFTERCHANGE=`sed "1,/tx$LASTCHANGETX/d" $LASTCHANGEBLK | grep .*:.*:$ACCTNUM:.* | cut -d":" -f4 | paste -sd+ | bc`
+                                        RECAFTERCHANGE=`sed "1,/TX$LASTCHANGETX/d" $LASTCHANGEBLK | grep .*:.*:$ACCTNUM:.* | cut -d":" -f4 | paste -sd+ | bc`
                                         [[ $RECAFTERCHANGE ]] || RECAFTERCHANGE=0
                                         #echo "Received after last change tx (same blk) = $RECAFTERCHANGE"
                         else
@@ -229,7 +274,7 @@ checkAccountBal () {
         [[ `grep .*:.*:$ACCTNUM:.* $i` ]] && SUM=$SUM+`grep .*:.*[^$ACCTNUM]*:$ACCTNUM:.* $i | cut -d":" -f4 | paste -sd+ | bc` || SUM=$SUM+0
       done
                         else
-                                        for i in `ls -1 *.blk*| sort -n | sed "1,/$LASTCHANGEBLK/d"`; do
+                                        for i in `ls -1 *blk*| sort -n | sed "1,/$LASTCHANGEBLK/d"`; do
         [[ `grep .*:.*:$ACCTNUM:.* $i` ]] && SUM=$SUM+`grep .*:.*[^$ACCTNUM]*:$ACCTNUM:.* $i | cut -d":" -f4 | paste -sd+ | bc` || SUM=$SUM+0
       done
         fi
@@ -248,10 +293,10 @@ send() {
         SENDER=$1
         RECEIVER=$2
         AMOUNT=$3
-        #FEE=$4
+        FEE=$4
 
-        #[[ -! $FEE ]] && echo "ERROR: You need to set FEE for miners validation." && exit
-        #[ $AMOUNT -le $FEE ] && echo "ERROR: Fee alwasys should be less than AMOUNT" && exit
+        [[ -z $FEE ]] && echo "ERROR: You need to set FEE for miners validation." && exit
+        [ $AMOUNT -le $FEE ] && echo "ERROR: Fee alwasys should be less than AMOUNT" && exit
 
         ## Fariz patch 
         [ $AMOUNT -lt 0 ] && echo "Amount cannot be negative" && exit 
@@ -265,42 +310,27 @@ send() {
                                         exit 1
         fi
 
-        # Check to see if current block has transactions listed
-        if [[ `cat $CURRENTBLOCK | grep "tx[0-9]*:"` ]]
-                        then
-                                        #echo "block has transactions"
-                                        # Get next tx number
-                                        LASTTRAN=`cat $CURRENTBLOCK | tail -1 | cut -d":" -f 1 | sed 's/tx//g' | sed 's/^0*//g'`
-                                        NEXTTRAN=`echo $LASTTRAN + 1 | bc`
-                                        #echo Next transaction number $NEXTTRAN
-                        else
-                                        #echo "block is void of transactions!"
-                                        # Get next tx number from previous block
-                                        LASTTRAN=$(ls -ltr | grep blk | awk '{print $9}' | xargs cat  | grep "tx[0-9]*:"|tail -1 | cut -d":" -f 1 | sed 's/tx//g' | sed 's/^0*//g')
-                                        #LASTTRAN=`cat $PREVIOUSBLOCK | grep tx | tail -1 | cut -d":" -f 1 | sed 's/tx//g' | sed 's/^0*//g'`
-                                        NEXTTRAN=`echo $LASTTRAN + 1 | bc`
-                                        #echo Next transaction number $NEXTTRAN
-        fi
 
-        [[ -z $LASTTRAN ]] && echo "ERROR: Couldn't find last tranasction number" && exit 1
-
-        checkAccountBal $3
+        checkAccountBal $SENDER
 
         echo "Amount to send: $AMOUNT"
         #echo Your current account balanace: $TOTAL
 
         [[ $AMOUNT -gt $TOTAL ]] && echo "Insufficient Funds!" && exit 1
         dateTime=$(date "+%Y%m%d%H%M%S")
-        echo "Success! Sent $1 bCN to $2"
+        echo "Success! Sent $AMOUNT bCN to $RECEIVER and fee is: $FEE"
         ppassword
+        
         SENDER_PUBKEY=$(openssl rsa -in $privateKeyFile -pubout -passin pass:$Password| base64| tr '\n' ' '| sed 's/ //g')
-        SIGN=$(echo "tx$NEXTTRAN:$SENDER:$RECEIVER:$AMOUNT:$dateTime"| openssl dgst -sign cert/key.pem -keyform PEM -sha256 -passin pass:$Password| base64 | tr '\n' ' ' | sed 's/ //g')
-        echo tx$NEXTTRAN:$SENDER:$RECEIVER:$AMOUNT:$dateTime:$SENDER_PUBKEY:$SIGN >> $CURRENTBLOCK
-        CHANGETRAN=`echo $NEXTTRAN+1 | bc`
-## NEED TO ADD FEE HERE
-        CHANGE=`echo $TOTAL-$AMOUNT | bc`
-        SIGN=$(echo "tx$CHANGETRAN:$SENDER:$SENDER:$CHANGE:$dateTime"| openssl dgst -sign cert/key.pem -keyform PEM -sha256 -passin pass:$Password| base64 | tr '\n' ' ' | sed 's/ //g')
-        echo tx$CHANGETRAN:$SENDER:$SENDER:$CHANGE:$dateTime:$SENDER_PUBKEY:$SIGN >> $CURRENTBLOCK
+        
+        HASH_TRANSACTION=$(echo "$SENDER:$RECEIVER:$AMOUNT:$FEE:$dateTime"| sha256sum| cut -d ' ' -f1)
+        SIGN=$(echo "TX$HASH_TRANSACTION:$SENDER:$RECEIVER:$AMOUNT:$FEE:$dateTime"| openssl dgst -sign cert/key.pem -keyform PEM -sha256 -passin pass:$Password| base64 | tr '\n' ' ' | sed 's/ //g')
+        echo TX$HASH_TRANSACTION:$SENDER:$RECEIVER:$AMOUNT:$FEE:$dateTime:$SENDER_PUBKEY:$SIGN >> blk.pending
+        
+        CHANGE=`echo $TOTAL-$AMOUNT-$FEE | bc`
+        HASH_TRANSACTION=$(echo "$SENDER:$SENDER:$CHANGE:0:$dateTime"| sha256sum | cut -d ' ' -f1)
+        SIGN=$(echo "TX$HASH_TRANSACTION:$SENDER:$SENDER:$CHANGE:0:$dateTime"| openssl dgst -sign cert/key.pem -keyform PEM -sha256 -passin pass:$Password| base64 | tr '\n' ' ' | sed 's/ //g')
+        echo TX$HASH_TRANSACTION:$SENDER:$SENDER:$CHANGE:0:$dateTime:$SENDER_PUBKEY:$SIGN >> blk.pending
 }
 
 validate() {
@@ -345,7 +375,7 @@ case "$1" in
                         ;;
         send)
                         shift
-                        [[ -z $@ ]] && echo "Usage: ./bashCoin send <fromAddress> <toAddress> <amount>" && exit 1
+                        [[ -z $@ ]] && echo "Usage: ./bashCoin send <amount> <toAddress> <fromAddress>" && exit 1
                         findBlocks
                         send $@
                         exit 0
