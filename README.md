@@ -57,9 +57,7 @@ bashCoin starts the blockchain with the files “1.blk.solved” and “2.blk”
 While Bitcoin rewards miners with coins, bashCoin currently does not.  Because of this, it is a good idea to include a large transaction in the genesis block before mining so that at least one participant has wealth.  bashCoin uses a specific schema for transactional data.  The following two lines can be included in the genesis file for ease of use.
 
 <pre>
-tx1:user1:user1:1000000
-
-tx2:user1:user1:1000000
+tx$(sha256Hash(pubKey1Hash256:pubKey2Hash256:<coin>:<fee><timeStampUTC>)):pubKey1Hash256:pubKey2Hash256:<coin>:<fee><timeStampUTC><PUBLICKEY>:<SIGN>
 </pre>
 When the genesis block is mined, user1 will “own” 1 million bashCoins.  user1 can then send up to 1 Mil coins to any other address.
 
@@ -68,18 +66,15 @@ After the first two transactions are included in the genesis block and it is min
 
 The following command allows a user to send coins in bashCoin.
 <pre>
-./bashCoin.sh send <numOfCoins> <toAddress> <fromAddress>
+./bashCoin.sh send  <fromAddress> <toAddress> <numOfCoins> <COIN> <FEE>
 </pre>
+
 The <toAddress> can be any string of letters and numbers as in “user2”.  bashCoin will go through the blockchain and calculate the balance of <fromAddress> so it must be associated with a positive balance for the transaction to work.  Use the following example to send the first transaction:
 <pre>
 ./bashCoin send 10 user2 user1
 </pre>
 The send() function in bashCoin first assigns the arguments to variables.  (The arguments are first shifted before the send() function is called.)
-<pre>
-SENDER=$3
-RECEIVER=$2
-AMOUNT=$1
-</pre>
+
 After checking the current block to make sure there is a valid and live chain, send() greps the current block for the latest transaction number.  If the current block does not have transactions listed it will  look to the previous block for the latest transaction number.  If the last transaction number cannot be found then the script exits.
 <pre>
 if [[ `cat $CURRENTBLOCK | grep "tx[0-9]*:"` ]]
