@@ -1,9 +1,9 @@
 #!/bin/bash
 
-version=1.2.1.0
+        version=1.2.1.1
+        REWARD_COIN=2
 
-
-## Set difficulty #####################################
+####       Set difficulty #####################################
 # Set to number of 0's that starts hash.
 # 1 = Easy, 2 = Not bad, > 3 = Difficult
         DIFF=1
@@ -20,17 +20,26 @@ version=1.2.1.0
         DIFFZEROS=0
 
 ## key Variables
-privateKeyFile=./cert/key.pem
-publicKeyFile=./cert/key.pub
+        CURR=$(pwd)
+        privateKeyFile="$CURR/cert/key.pem"
+        publicKeyFile="$CURR/cert/key.pub"
+        BLOCKPATH="$CURR/blocks"
 
 # mine top
-topHighFeeTransactions=100
+        topHighFeeTransactions=100
 
-## Functions ##########################################
 
-[ ! -f blk.pending ] && touch blk.pending
+
+## init
+cd $BLOCKPATH
+
+## Functions ##################################################
+
+[ ! -f $BLOCKPATH/blk.pending ] && touch $BLOCKPATH/blk.pending
 
 ppassword() {
+        ## this function created global Password variable to put OpenSSL command line.
+        ## it can be change in socket development
         unset Password
         prompt="Enter Password:"
         while IFS= read -p "$prompt" -r -s -n 1 char
@@ -42,9 +51,14 @@ ppassword() {
         prompt='*'
         Password+="$char"
         done
-        echo 
-        echo
+        openssl rsa -noout -in $privateKeyFile -passin "pass:${Password}"
+        if [ $? -ne 0 ];then
+                echo "Private Key password is wrong. Please check again"
+                exit 1
+        fi
+
 }
+
 
 findBlocks() {
         CURRENTBLOCK=`ls -1 *.blk | tail -1`
@@ -132,23 +146,23 @@ validateTransactions() {
 
 buildWIPBlock () {
         DATE=$(date -u)
-        printf "`cat $CURRENTBLOCK`\n" > $CURRENTBLOCK.wip
-        printf "HEADERS: $HEADLINE\n" >> $CURRENTBLOCK.wip
-        printf "DateTime: $DATE\n"    >> $CURRENTBLOCK.wip
-        printf "Version: $version\n"  >> $CURRENTBLOCK.wip
-        printf "Difficulty: $DIFF\n"  >> $CURRENTBLOCK.wip
+        printf "`cat $CURRENTBLOCK`\n"    >  $CURRENTBLOCK.wip
+        printf "HEADERS:\n"               >> $CURRENTBLOCK.wip
+        printf "BLOCKID: $CURRENTBLOCK\n" >> $CURRENTBLOCK.wip
+        printf "DateTime: $DATE\n"        >> $CURRENTBLOCK.wip
+        printf "Version: $version\n"      >> $CURRENTBLOCK.wip
+        printf "Difficulty: $DIFF\n"      >> $CURRENTBLOCK.wip
         echo 
         echo
         ## this is valid transactions
         validateTransactions >> $CURRENTBLOCK.wip
-        ppassword
         ## build transaction for reward (need to add sign also)
         SENDER=$(cat ${publicKeyFile}| sha256sum | cut -d" " -f1)
         dateTime=$(date "+%Y%m%d%H%M%S")
-        HASH_TRANSACTION=$(echo REWARD:${SENDER}:2:0:${dateTime}| sha256sum| cut -d" " -f1)
-        SIGN=$(echo TX$HASH_TRANSACTION:REWARD:${SENDER}:2:0:${dateTime} | openssl dgst -sign cert/key.pem -keyform PEM -sha256 -passin pass:$Password| base64 | tr '\n' ' ' | sed 's/ //g')
+        HASH_TRANSACTION=$(echo REWARD:${SENDER}:${REWARD_COIN}:0:${dateTime}| sha256sum| cut -d" " -f1)
+        SIGN=$(echo TX$HASH_TRANSACTION:REWARD:${SENDER}:${REWARD_COIN}:0:${dateTime} | openssl dgst -sign ${privateKeyFile} -keyform PEM -sha256 -passin pass:$Password| base64 | tr '\n' ' ' | sed 's/ //g')
         SENDER_PUBKEY=$(cat ${publicKeyFile}| base64 |tr '\n' ' '| sed 's/ //g'  )
-        echo TX$HASH_TRANSACTION:REWARD:${SENDER}:2:0:${dateTime}:$SENDER_PUBKEY:$SIGN >> $CURRENTBLOCK.wip
+        echo TX$HASH_TRANSACTION:REWARD:${SENDER}:${REWARD_COIN}:0:${dateTime}:$SENDER_PUBKEY:$SIGN >> $CURRENTBLOCK.wip
         ## add block sign to block
         echo >> $CURRENTBLOCK.wip
         echo >> $CURRENTBLOCK.wip
@@ -232,11 +246,20 @@ mineGenesis () {
 
 
 
+AddBlockFromNetwork() {
+        # get file by BASE64 format.
+        FILENAME=$1
+        echo "check really block exists with Hash (all previus)"
+        echo "if already in there then Ignore"
+        echo "if not exist check time stamp (should be new)"
+        echo "check block SIGNATURE"
+        echo "verity transactions with time and signatures (time also should be new)"
+        echo "block number take and put in place (always BLOCKID should be next) "
+}
 
 
 checkAccountBal () {
         ACCTNUM=$1
-
         # Get the value of the last change transaction (the last time a user sent money back to themselves) if it exists
         for i in `ls *blk* -1| sort -nr`; do
                         LASTCHANGEBLK=`grep -l -m 1 .*:$ACCTNUM:$ACCTNUM:.* $i`
@@ -310,7 +333,6 @@ send() {
                                         exit 1
         fi
 
-
         checkAccountBal $SENDER
 
         echo "Amount to send: $AMOUNT"
@@ -319,17 +341,17 @@ send() {
         [[ $AMOUNT -gt $TOTAL ]] && echo "Insufficient Funds!" && exit 1
         dateTime=$(date "+%Y%m%d%H%M%S")
         echo "Success! Sent $AMOUNT bCN to $RECEIVER and fee is: $FEE"
-        ppassword
+        #ppassword
         
         SENDER_PUBKEY=$(openssl rsa -in $privateKeyFile -pubout -passin pass:$Password| base64| tr '\n' ' '| sed 's/ //g')
         
         HASH_TRANSACTION=$(echo "$SENDER:$RECEIVER:$AMOUNT:$FEE:$dateTime"| sha256sum| cut -d ' ' -f1)
-        SIGN=$(echo "TX$HASH_TRANSACTION:$SENDER:$RECEIVER:$AMOUNT:$FEE:$dateTime"| openssl dgst -sign cert/key.pem -keyform PEM -sha256 -passin pass:$Password| base64 | tr '\n' ' ' | sed 's/ //g')
+        SIGN=$(echo "TX$HASH_TRANSACTION:$SENDER:$RECEIVER:$AMOUNT:$FEE:$dateTime"| openssl dgst -sign ${privateKeyFile} -keyform PEM -sha256 -passin pass:$Password| base64 | tr '\n' ' ' | sed 's/ //g')
         echo TX$HASH_TRANSACTION:$SENDER:$RECEIVER:$AMOUNT:$FEE:$dateTime:$SENDER_PUBKEY:$SIGN >> blk.pending
         
         CHANGE=`echo $TOTAL-$AMOUNT-$FEE | bc`
         HASH_TRANSACTION=$(echo "$SENDER:$SENDER:$CHANGE:0:$dateTime"| sha256sum | cut -d ' ' -f1)
-        SIGN=$(echo "TX$HASH_TRANSACTION:$SENDER:$SENDER:$CHANGE:0:$dateTime"| openssl dgst -sign cert/key.pem -keyform PEM -sha256 -passin pass:$Password| base64 | tr '\n' ' ' | sed 's/ //g')
+        SIGN=$(echo "TX$HASH_TRANSACTION:$SENDER:$SENDER:$CHANGE:0:$dateTime"| openssl dgst -sign ${privateKeyFile} -keyform PEM -sha256 -passin pass:$Password| base64 | tr '\n' ' ' | sed 's/ //g')
         echo TX$HASH_TRANSACTION:$SENDER:$SENDER:$CHANGE:0:$dateTime:$SENDER_PUBKEY:$SIGN >> blk.pending
 }
 
@@ -344,19 +366,16 @@ validate() {
                         j=`ls -1 | egrep "solved$|blk$" | sort -n| grep -A 1 $i | head -2| grep -v $i | tail -1`
                         PREVHASH=`md5sum $h | cut -d" " -f1`
                         CALCHASH=`sed "2c$PREVHASH" $i | md5sum | cut -d" " -f1`
-                        REPORTEDHASH=`sed -n '2p' $j`
-                        #echo "Checking $i"
-                        #echo "....."
-                        #echo "PrevHash of $h:                                       $PREVHASH"
-                        #echo "Reported Hash from $j file, this is actually $i hash: $REPORTEDHASH"
-                        #echo "Calculated Hash from $i injected $h file:             $CALCHASH"  
+                        REPORTEDHASH=`sed -n '2p' $j` 
                         [[ $CALCHASH != $REPORTEDHASH ]] && echo "Hash mismatch!  $i has changed!  Do not trust any block after and including $i" && exit 1 || echo "Hashes match! $i is a good block."
         done
         echo "Blockchain validated.  Unbroken Chain."
 }
 
+
 case "$1" in
         mine)
+                        ppassword
                         validate
                         findBlocks
                         checkSyntax
@@ -374,6 +393,7 @@ case "$1" in
                         mineGenesis $1
                         ;;
         send)
+                        ppassword
                         shift
                         [[ -z $@ ]] && echo "Usage: ./bashCoin send <amount> <toAddress> <fromAddress>" && exit 1
                         findBlocks
@@ -400,5 +420,7 @@ case "$1" in
                         exit 1
                         ;;
 esac
+
+cd $CURR
 
 exit 0
